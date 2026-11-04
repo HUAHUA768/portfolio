@@ -1,0 +1,30 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+
+const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+---
+
+<Base title="我的项目">
+  <div class="subpage">
+    <a class="back" href="/">← 回首页</a>
+    <h1>我的项目</h1>
+    <p class="page-sub">都在 GitHub 上公开，点开卡片可以看详细说明。</p>
+    <div class="proj-grid">
+      {
+        projects.map((project) => (
+          <a class="card proj-card" href={`/projects/${project.id}/`}>
+            <h2>{project.data.title}</h2>
+            <p class="desc">{project.data.tagline}</p>
+            <div class="chips">
+              {project.data.stack.slice(0, 4).map((item) => (
+                <span class="chip">{item}</span>
+              ))}
+            </div>
+            <span class="more">阅读更多 →</span>
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</Base>

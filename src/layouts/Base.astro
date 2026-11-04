@@ -1,0 +1,584 @@
+---
+import '../styles/global.css';
+import { SITE } from '../data/site';
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** 子页面用：内容包在自己的容器里，首页用 .page，其他页用 .subpage */
+}
+
+const { title, description = SITE.description } = Astro.props;
+const pageTitle = title ? `${title} · ${SITE.name}` : `${SITE.name}`;
+const canonical = new URL(Astro.url.pathname, SITE.url).href;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.cn" />
+    <link rel="preconnect" href="https://fonts.gstatic.cn" crossorigin />
+    <link
+      href="https://fonts.googleapis.cn/css2?family=Averia+Gruesa+Libre:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+  </head>
+  <body>
+    <div class="bg"></div>
+
+    <div id="bfc" class="bfc-root bfc-trail-empty bfc-rest" aria-hidden="true">
+      <div class="bfc-notes"></div>
+      <canvas class="bfc-trail"></canvas>
+      <div class="bfc-pos">
+        <div class="bfc-tilt">
+          <div class="bfc-fly">
+            <div class="bfc-bob">
+              <div class="bfc-svg">
+                <svg viewBox="0 0 66 54" fill="none">
+                  <defs>
+                    <linearGradient id="bfg" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="#FFE3A0"></stop>
+                      <stop offset="0.5" stop-color="#F3C45D"></stop>
+                      <stop offset="1" stop-color="#C99433"></stop>
+                    </linearGradient>
+                  </defs>
+                  <g fill="url(#bfg)">
+                    <g id="bfc-wing-left">
+                      <path d="M33 27 C 24 16 10 3 4.5 9 C -0.5 14.5 5 27.5 33 27.5 Z"></path>
+                      <path d="M33 27.5 C 23 29 12 35 11.5 43 C 11 50.5 26 46 33 27.5 Z"></path>
+                      <circle cx="13.5" cy="14.5" r="3" fill="#FFF3D6" opacity="0.6"></circle>
+                      <circle cx="17" cy="38.5" r="1.9" fill="#FFF3D6" opacity="0.5"></circle>
+                    </g>
+                    <g id="bfc-wing-right">
+                      <g transform="translate(66,0) scale(-1,1)">
+                        <path d="M33 27 C 24 16 10 3 4.5 9 C -0.5 14.5 5 27.5 33 27.5 Z"></path>
+                        <path d="M33 27.5 C 23 29 12 35 11.5 43 C 11 50.5 26 46 33 27.5 Z"></path>
+                        <circle cx="13.5" cy="14.5" r="3" fill="#FFF3D6" opacity="0.6"></circle>
+                        <circle cx="17" cy="38.5" r="1.9" fill="#FFF3D6" opacity="0.5"></circle>
+                      </g>
+                    </g>
+                    <ellipse cx="33" cy="26.5" rx="2.6" ry="9.5"></ellipse>
+                    <circle cx="33" cy="16.2" r="3.2"></circle>
+                  </g>
+                  <path d="M32 13.8 C 30 9 26.5 6 22.5 5" stroke="#C99433" stroke-width="1.1" fill="none" stroke-linecap="round"></path>
+                  <path d="M34 13.8 C 36 9 39.5 6 43.5 5" stroke="#C99433" stroke-width="1.1" fill="none" stroke-linecap="round"></path>
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <slot />
+    <footer class="foot">© {new Date().getFullYear()} {SITE.name} · Built with Astro · GitHub Pages</footer>
+
+    <script>
+      (() => {
+        const root = document.getElementById('bfc');
+        const fine = window.matchMedia('(pointer: fine)');
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+        if (!root) return;
+
+        const posEl = root.querySelector('.bfc-pos');
+        const tiltEl = root.querySelector('.bfc-tilt');
+        const canvas = root.querySelector('.bfc-trail');
+        const notesEl = root.querySelector('.bfc-notes');
+        const wingL = root.querySelector('#bfc-wing-left');
+        const wingR = root.querySelector('#bfc-wing-right');
+
+        const IDLE_MS = 1400;      // 无输入多久进入慢扇
+        const REST_DELAY = 3000;   // 再停多久翅膀缓缓停住
+        const NOTE_CHARS = ['♪', '♫', '♬', '♩'];
+        const MELODY = [47, 47, 46, 47, 42, 47, 47, 46, 47, 42, 47, 47, 46, 47, 42, 40, 39, 40, 42, 35, 47, 47, 46, 47, 42, 47, 47, 46, 47, 42, 47, 47, 46, 47, 42, 52, 51, 54];
+
+        let shown = false, placed = false, idle = false, press = false;
+        let tx = 0, ty = 0, x = 0, y = 0, tilt = 0, lastMove = 0;
+        let raf = 0, lastFrame = 0, restTimer = 0;
+        let ctx = null, W = 0, H = 0;
+        let settleAnims = [];
+        let trail = [], sparks = [], stars = [], glows = [];
+        let starSprites = null, glowSprites = null;
+
+        const STAR_COLORS = [[255, 214, 130], [255, 193, 217], [206, 181, 255], [172, 216, 255]];
+        const GOLD_FROM = [201, 148, 51], GOLD_MID = [243, 196, 93], GOLD_TO = [255, 227, 160];
+
+        const randColorIdx = () => (Math.random() < 0.4 ? 0 : 1 + Math.floor(Math.random() * 3));
+
+        function makeStarSprite(rgb) {
+          const c = document.createElement('canvas');
+          c.width = c.height = 48;
+          const g = c.getContext('2d');
+          if (!g) return c;
+          g.translate(24, 24);
+          const grad = g.createRadialGradient(0, 0, 0, 0, 0, 24);
+          grad.addColorStop(0, `rgba(${rgb},0.5)`);
+          grad.addColorStop(1, `rgba(${rgb},0)`);
+          g.fillStyle = grad;
+          g.fillRect(-24, -24, 48, 48);
+          const r = 12, k = 1.7;
+          g.fillStyle = 'rgba(255,255,255,0.95)';
+          g.shadowColor = `rgba(${rgb},0.9)`;
+          g.shadowBlur = 5;
+          g.beginPath();
+          g.moveTo(0, -12);
+          g.quadraticCurveTo(k, -1.7, r, 0);
+          g.quadraticCurveTo(k, k, 0, r);
+          g.quadraticCurveTo(-1.7, k, -12, 0);
+          g.quadraticCurveTo(-1.7, -k, 0, -12);
+          g.fill();
+          return c;
+        }
+
+        function makeGlowSprite(rgb) {
+          const c = document.createElement('canvas');
+          c.width = c.height = 64;
+          const g = c.getContext('2d');
+          if (!g) return c;
+          const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+          grad.addColorStop(0, 'rgba(255,255,255,0.55)');
+          grad.addColorStop(0.35, `rgba(${rgb},0.4)`);
+          grad.addColorStop(1, `rgba(${rgb},0)`);
+          g.fillStyle = grad;
+          g.fillRect(0, 0, 64, 64);
+          return c;
+        }
+
+        function ensureSprites() {
+          if (!starSprites) starSprites = STAR_COLORS.map((c) => makeStarSprite(c.join(',')));
+          if (!glowSprites) glowSprites = STAR_COLORS.map((c) => makeGlowSprite(c.join(',')));
+        }
+
+        function goldRgb(t) {
+          const [a, b, k] = t < 0.5 ? [GOLD_FROM, GOLD_MID, t * 2] : [GOLD_MID, GOLD_TO, (t - 0.5) * 2];
+          return `${Math.round(a[0] + (b[0] - a[0]) * k)},${Math.round(a[1] + (b[1] - a[1]) * k)},${Math.round(a[2] + (b[2] - a[2]) * k)}`;
+        }
+
+        function resizeCanvas() {
+          if (!canvas) return;
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          W = window.innerWidth;
+          H = window.innerHeight;
+          canvas.width = Math.round(W * dpr);
+          canvas.height = Math.round(H * dpr);
+          canvas.style.width = `${W}px`;
+          canvas.style.height = `${H}px`;
+          ctx = canvas.getContext('2d');
+          if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        function clearParticles() {
+          trail = []; sparks = []; stars = []; glows = [];
+          if (ctx && W) ctx.clearRect(0, 0, W, H);
+          root.classList.add('bfc-trail-empty');
+        }
+
+        function updateParticles(speed, dx, dy, dtF) {
+          for (const p of trail) p.life -= 0.05 * dtF;
+          if (trail.length) trail = trail.filter((p) => p.life > 0);
+
+          for (const p of sparks) {
+            p.x += p.vx * dtF;
+            p.y += p.vy * dtF;
+            p.vy -= 0.05 * dtF;
+            p.life -= 0.06 * dtF;
+          }
+          if (sparks.length) sparks = sparks.filter((p) => p.life > 0);
+
+          const damp = Math.max(0, 1 - 0.05 * dtF);
+          for (const p of stars) {
+            p.x += p.vx * dtF;
+            p.y += p.vy * dtF;
+            p.vx *= damp;
+            p.vy = p.vy * damp - 0.006 * dtF;
+            p.rot += p.vr * dtF;
+            p.life -= p.decay * dtF;
+          }
+          if (stars.length) stars = stars.filter((p) => p.life > 0);
+
+          for (const p of glows) {
+            p.y += p.vy * dtF;
+            p.life -= p.decay * dtF;
+          }
+          if (glows.length) glows = glows.filter((p) => p.life > 0);
+
+          if (reduce.matches) return;
+
+          if (speed > 0.8) {
+            trail.push({ x, y, life: 1 });
+            if (trail.length > 28) trail.shift();
+            if (speed > 7 && sparks.length < 30) {
+              const n = speed > 26 ? 2 : 1;
+              for (let i = 0; i < n; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const v = 0.6 + Math.random() * 1.8;
+                sparks.push({
+                  x: x + (Math.random() - 0.5) * 8,
+                  y: y + (Math.random() - 0.5) * 8,
+                  vx: Math.cos(a) * v - dx * 0.06,
+                  vy: Math.sin(a) * v - dy * 0.06,
+                  life: 0.8 + Math.random() * 0.4,
+                  size: 1 + Math.random() * 1.8,
+                });
+              }
+            }
+          }
+
+          if (speed > 1.6 && stars.length < 64 && Math.random() < Math.min(0.6, 0.08 + speed * 0.02)) {
+            stars.push({
+              x: x + (Math.random() - 0.5) * 14,
+              y: y + (Math.random() - 0.5) * 14,
+              vx: (Math.random() - 0.5) * 0.9 - dx * 0.05,
+              vy: (Math.random() - 0.5) * 0.9 - dy * 0.05,
+              life: 1,
+              decay: 0.014 + Math.random() * 0.012,
+              size: 9 + Math.random() * 9,
+              rot: Math.random() * Math.PI,
+              vr: (Math.random() - 0.5) * 0.06,
+              ci: randColorIdx(),
+              twSeed: Math.random() * Math.PI * 2,
+              twSpd: 120 + Math.random() * 260,
+            });
+          }
+
+          if (speed > 5 && glows.length < 12 && Math.random() < 0.12) {
+            glows.push({
+              x: x + (Math.random() - 0.5) * 24,
+              y: y + (Math.random() - 0.5) * 24,
+              vy: -(0.08 + Math.random() * 0.18),
+              life: 1,
+              decay: 0.008 + Math.random() * 0.005,
+              size: 24 + Math.random() * 22,
+              ci: randColorIdx(),
+              seed: Math.random() * Math.PI * 2,
+            });
+          }
+        }
+
+        function drawParticles(now) {
+          const g = ctx;
+          if (!g) return;
+          g.clearRect(0, 0, W, H);
+          if (reduce.matches) return;
+          const n = trail.length;
+          if (n < 2 && !sparks.length && !stars.length && !glows.length) {
+            root.classList.add('bfc-trail-empty');
+            return;
+          }
+          root.classList.remove('bfc-trail-empty');
+          g.globalCompositeOperation = 'lighter';
+          g.lineCap = 'round';
+          g.lineJoin = 'round';
+          const hue = 250 + 45 * Math.sin(now / 1100);
+          for (let i = 1; i < n; i++) {
+            const a = trail[i - 1], b = trail[i];
+            const t = i / (n - 1);
+            const life = b.life;
+            g.strokeStyle = `rgba(${goldRgb(t)},${(0.16 * life * (0.3 + 0.7 * t)).toFixed(3)})`;
+            g.lineWidth = (2 + 13 * t) * life + 0.5;
+            g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+            g.strokeStyle = `hsla(${hue.toFixed(0)},85%,80%,${(0.1 * life * (0.2 + 0.8 * t)).toFixed(3)})`;
+            g.lineWidth = (1 + 6.5 * t) * life + 0.4;
+            g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+            g.strokeStyle = `rgba(255,236,190,${(0.5 * life * (0.25 + 0.75 * t)).toFixed(3)})`;
+            g.lineWidth = (0.8 + 4.2 * t) * life + 0.3;
+            g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+          }
+          for (const p of sparks) {
+            g.fillStyle = `rgba(255,214,130,${(0.75 * p.life).toFixed(3)})`;
+            g.beginPath();
+            g.arc(p.x, p.y, Math.max(0.4, p.size * p.life), 0, Math.PI * 2);
+            g.fill();
+          }
+          ensureSprites();
+          if (starSprites && glowSprites) {
+            for (const p of stars) {
+              const tw = 0.5 + 0.5 * Math.sin(p.twSeed + now / p.twSpd);
+              const appear = Math.min(1, p.life * 4);
+              const alpha = Math.max(0, p.life) * (0.4 + 0.6 * tw);
+              const size = p.size * (0.75 + 0.45 * tw) * appear;
+              if (alpha <= 0.01 || size < 1) continue;
+              g.save();
+              g.globalAlpha = Math.min(1, alpha);
+              g.translate(p.x, p.y);
+              g.rotate(p.rot);
+              g.drawImage(starSprites[p.ci], -size / 2, -size / 2, size, size);
+              g.restore();
+            }
+            for (const p of glows) {
+              const sway = Math.sin(p.seed + now / 650) * 6;
+              const alpha = 0.32 + 0.18 * Math.sin(p.seed * 3 + now / 420);
+              const size = p.size * (0.85 + 0.3 * Math.sin(p.seed + now / 900));
+              g.globalAlpha = Math.max(0, Math.min(1, p.life)) * alpha;
+              g.drawImage(glowSprites[p.ci], p.x + sway - size / 2, p.y - size / 2, size, size);
+            }
+            g.globalAlpha = 1;
+          }
+          g.globalCompositeOperation = 'source-over';
+        }
+
+        function frame(now) {
+          if (!shown || !placed) { raf = 0; lastFrame = 0; return; }
+          const isIdle = now - lastMove > IDLE_MS;
+          if (isIdle !== idle) {
+            idle = isIdle;
+            root.classList.toggle('bfc-idle', idle);
+          }
+          const ease = idle ? 0.12 : 0.6;
+          const px = x, py = y;
+          x += (tx - x) * ease;
+          y += (ty - y) * ease;
+          const targetTilt = Math.max(-32, Math.min(32, (x - px) * 4));
+          tilt += (targetTilt - tilt) * 0.16;
+          if (posEl) posEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+          if (tiltEl) tiltEl.style.transform = `rotate(${tilt.toFixed(2)}deg)`;
+          const dtF = lastFrame ? Math.min((now - lastFrame) / 16.7, 3) : 1;
+          lastFrame = now;
+          updateParticles(Math.hypot(x - px, y - py), x - px, y - py, dtF);
+          drawParticles(now);
+          const settled =
+            idle && Math.abs(tx - x) < 0.1 && Math.abs(ty - y) < 0.1 && Math.abs(tilt) < 0.05 &&
+            !trail.length && !sparks.length && !stars.length && !glows.length;
+          if (settled) {
+            x = tx; y = ty; tilt = 0;
+            if (posEl) posEl.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+            if (tiltEl) tiltEl.style.transform = 'rotate(0deg)';
+            raf = 0; lastFrame = 0;
+            window.clearTimeout(restTimer);
+            restTimer = window.setTimeout(settleWings, REST_DELAY);
+            return;
+          }
+          raf = requestAnimationFrame(frame);
+        }
+
+        function wake() {
+          wakeWings();
+          if (!raf) { lastFrame = 0; raf = requestAnimationFrame(frame); }
+        }
+
+        function settleWings() {
+          restTimer = 0;
+          if (reduce.matches || !wingL || !wingR) return;
+          const froms = [wingL, wingR].map((el) => {
+            const from = getComputedStyle(el).transform;
+            return { el, from: from === 'none' ? 'rotateY(8deg)' : from };
+          });
+          settleAnims.forEach((a) => a.cancel());
+          settleAnims = froms.map(({ el, from }) =>
+            el.animate(
+              [{ transform: from }, { transform: 'rotateY(8deg)' }],
+              { duration: 1600, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+            )
+          );
+          root.classList.add('bfc-rest');
+          Promise.allSettled(settleAnims.map((a) => a.finished)).then(() => { settleAnims = []; });
+        }
+
+        function wakeWings() {
+          window.clearTimeout(restTimer);
+          restTimer = 0;
+          if (settleAnims.length && wingL && wingR && !reduce.matches) {
+            const pending = [];
+            for (const el of [wingL, wingR]) {
+              const from = getComputedStyle(el).transform;
+              el.style.animationDelay = '160ms';
+              el.style.animationFillMode = 'backwards';
+              el.animate(
+                [{ transform: from === 'none' ? 'rotateY(8deg)' : from }, { transform: 'rotateY(8deg)' }],
+                { duration: 160, easing: 'ease-out' }
+              );
+              pending.push(el);
+            }
+            setTimeout(() => pending.forEach((el) => {
+              el.style.animationDelay = '';
+              el.style.animationFillMode = '';
+            }), 180);
+          }
+          settleAnims.forEach((a) => a.cancel());
+          settleAnims = [];
+          root.classList.remove('bfc-rest');
+        }
+
+        function spawnNotes(x0, y0) {
+          if (reduce.matches || !notesEl) return;
+          const count = notesEl.querySelectorAll('.bfc-note').length;
+          if (count > 48) return;
+          const n = 5 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < n; i++) {
+            const el = document.createElement('span');
+            el.className = 'bfc-note';
+            el.textContent = NOTE_CHARS[Math.floor(Math.random() * NOTE_CHARS.length)];
+            el.style.fontSize = `${(13 + Math.random() * 8).toFixed(1)}px`;
+            el.style.left = `${x0 + (Math.random() - 0.5) * 10}px`;
+            el.style.top = `${y0 + (Math.random() - 0.5) * 8}px`;
+            const rise = 34 + Math.random() * 42;
+            const drift = (Math.random() - 0.5) * 76;
+            const spin = (Math.random() - 0.5) * 90;
+            const k1 = 0.9 + Math.random() * 0.2;
+            const k2 = 0.9 + Math.random() * 0.2;
+            el.animate(
+              [
+                { transform: 'translate(-50%, -50%) scale(0.3)', opacity: 0, offset: 0 },
+                { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0.14 },
+                { transform: `translate(calc(-50% + ${(drift * 0.55).toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) rotate(${(spin * 0.55).toFixed(1)}deg) scale(1)`, opacity: 1, offset: 0.45 },
+                { transform: `translate(calc(-50% + ${(drift * 0.85).toFixed(1)}px), calc(-50% - ${(rise * 0.18).toFixed(1)}px)) rotate(${(spin * 0.8).toFixed(1)}deg) scale(0.92)`, opacity: 0.95, offset: 0.66 },
+                { transform: `translate(calc(-50% + ${(drift * k1).toFixed(1)}px), calc(-50% - ${(rise * 0.52).toFixed(1)}px)) rotate(${(spin * k2).toFixed(1)}deg) scale(0.8)`, opacity: 0.7, offset: 0.84 },
+                { transform: `translate(calc(-50% + ${(drift * 1.1).toFixed(1)}px), calc(-50% + 8px)) rotate(${spin.toFixed(1)}deg) scale(0.55)`, opacity: 0 },
+              ],
+              { duration: 720 + Math.random() * 420, delay: Math.random() * 70, easing: 'cubic-bezier(0.3, 0.7, 0.4, 1)' }
+            ).onfinish = () => el.remove();
+            notesEl.appendChild(el);
+          }
+        }
+
+        function burst(x0, y0) {
+          if (reduce.matches || stars.length > 90) return;
+          const n = 12 + Math.floor(Math.random() * 4);
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+            const v = 1.4 + Math.random() * 2.4;
+            stars.push({
+              x: x0, y: y0,
+              vx: Math.cos(a) * v, vy: Math.sin(a) * v - 0.3,
+              life: 1, decay: 0.02 + Math.random() * 0.012,
+              size: 10 + Math.random() * 10,
+              rot: a, vr: (Math.random() - 0.5) * 0.14,
+              ci: randColorIdx(),
+              twSeed: Math.random() * Math.PI * 2,
+              twSpd: 120 + Math.random() * 260,
+            });
+          }
+          for (let i = 0; i < 2 && glows.length < 16; i++) {
+            glows.push({
+              x: x0 + (Math.random() - 0.5) * 16,
+              y: y0 + (Math.random() - 0.5) * 10,
+              vy: -(0.12 + Math.random() * 0.2),
+              life: 1, decay: 0.009 + Math.random() * 0.004,
+              size: 20 + Math.random() * 18,
+              ci: randColorIdx(),
+              seed: Math.random() * Math.PI * 2,
+            });
+          }
+          wake();
+        }
+
+        let audioCtx = null, audioMaster = null, audioDelay = null, noteIdx = 0, lastNoteAt = 0;
+        function ensureAudio() {
+          if (audioCtx) {
+            if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+            return true;
+          }
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return false;
+          audioCtx = new AC();
+          audioDelay = audioCtx.createDelay(1);
+          audioDelay.delayTime.value = 0.21;
+          const fb = audioCtx.createGain(); fb.gain.value = 0.3;
+          const wet = audioCtx.createGain(); wet.gain.value = 0.4;
+          audioMaster = audioCtx.createGain();
+          audioMaster.connect(audioCtx.destination);
+          audioMaster.connect(audioDelay);
+          audioDelay.connect(fb); fb.connect(audioDelay);
+          audioDelay.connect(wet); wet.connect(audioCtx.destination);
+          return true;
+        }
+
+        function playNote() {
+          if (!ensureAudio() || !audioMaster || !audioCtx) return;
+          const now = performance.now();
+          if (now - lastNoteAt < 45) return;
+          lastNoteAt = now;
+          const midi = MELODY[noteIdx++ % MELODY.length] + 12;
+          const freq = 440 * Math.pow(2, (midi - 69) / 12);
+          const t = audioCtx.currentTime;
+          const env = audioCtx.createGain();
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(0.05 + Math.random() * 0.025, t + 0.008);
+          env.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+          env.connect(audioMaster);
+          for (const [mult, vol] of [[1, 1], [2.01, 0.32], [3.02, 0.1]]) {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = freq * mult;
+            const og = audioCtx.createGain();
+            og.gain.value = vol;
+            osc.connect(og); og.connect(env);
+            osc.start(t); osc.stop(t + 1);
+          }
+        }
+
+        function onPointer(e, phase) {
+          if (e.pointerType !== 'mouse' || !e.isPrimary) return;
+          tx = e.clientX;
+          ty = e.clientY;
+          press = (e.buttons & 1) !== 0;
+          root.classList.toggle('bfc-press', press);
+          if (!shown || !fine.matches) return;
+          if (!placed) {
+            placed = true;
+            x = tx; y = ty; tilt = 0;
+            if (posEl) posEl.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+            if (tiltEl) tiltEl.style.transform = 'rotate(0deg)';
+            root.classList.add('bfc-shown');
+          }
+          lastMove = performance.now();
+          idle = false;
+          root.classList.remove('bfc-idle');
+          wake();
+          if (phase === 'down' && e.button === 0) {
+            spawnNotes(tx, ty);
+            burst(tx, ty);
+            playNote();
+          }
+        }
+
+        function hide() {
+          placed = false; press = false; idle = false;
+          window.clearTimeout(restTimer); restTimer = 0;
+          settleAnims.forEach((a) => a.cancel()); settleAnims = [];
+          if (raf) cancelAnimationFrame(raf);
+          raf = 0; lastFrame = 0;
+          clearParticles();
+          if (notesEl) notesEl.querySelectorAll('.bfc-note').forEach((el) => el.remove());
+          root.className = 'bfc-root bfc-trail-empty bfc-rest';
+        }
+
+        function sync() {
+          const want = fine.matches && document.visibilityState === 'visible' && !document.fullscreenElement;
+          if (want === shown) return;
+          shown = want;
+          document.documentElement.classList.toggle('bfc-cursor-on', want);
+          if (want) {
+            lastMove = performance.now();
+            resizeCanvas();
+          } else {
+            hide();
+          }
+        }
+
+        window.addEventListener('pointermove', (e) => onPointer(e, 'move'), { passive: true });
+        window.addEventListener('pointerdown', (e) => onPointer(e, 'down'), { passive: true });
+        window.addEventListener('pointerup', (e) => onPointer(e, 'up'), { passive: true });
+        window.addEventListener('pointercancel', hide, { passive: true });
+        window.addEventListener('blur', hide);
+        window.addEventListener('resize', () => shown && resizeCanvas(), { passive: true });
+        document.documentElement.addEventListener('mouseleave', hide);
+        document.addEventListener('visibilitychange', sync);
+        document.addEventListener('fullscreenchange', sync);
+        fine.addEventListener('change', sync);
+
+        sync();
+      })();
+    </script>
+  </body>
+</html>
