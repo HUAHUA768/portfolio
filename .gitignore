@@ -5,3 +5,4 @@ dist/
 *.log
 *.flac
 profile_picture.jpg
+.workbuddy/
