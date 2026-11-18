@@ -71,7 +71,11 @@ git push
 ```bash
 cd ~/My_Blog
 npm install          # 首次
+
+# 场景一：写代码时
 npm run dev          # 开发模式 http://localhost:4321，改完自动刷新
+
+# 场景二：验证构建产物（先 build 再 preview，配套使用）
 npm run build        # 构建到 dist/
 npm run preview      # 预览构建产物
 ```
